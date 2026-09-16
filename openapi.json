@@ -1,0 +1,2800 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "WebYore API",
+    "version": "1.0.0",
+    "description": "Create and manage redirecting Short Links, immutable Snapshots, and bounded Hosted Images."
+  },
+  "servers": [
+    {
+      "url": "https://api.webyore.com/v1",
+      "description": "Production"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Short Links",
+      "description": "Short URLs that redirect to a validated destination."
+    },
+    {
+      "name": "Snapshots",
+      "description": "Asynchronous immutable captures of public web pages."
+    },
+    {
+      "name": "Hosted Images",
+      "description": "Capped image hosting with asynchronous normalization; Free and Supporter quotas differ."
+    },
+    {
+      "name": "Analytics",
+      "description": "Privacy-preserving aggregate Short Link analytics."
+    },
+    {
+      "name": "Domains",
+      "description": "Supporter custom-domain ownership and activation."
+    },
+    {
+      "name": "Usage",
+      "description": "Account plan and quota usage."
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/images/uploads/{upload_id}/cancel": {
+      "post": {
+        "tags": [
+          "Hosted Images"
+        ],
+        "operationId": "cancelImageUpload",
+        "summary": "Cancel a pending direct upload",
+        "description": "Requires images:write from the same account and quota class. Atomically prevents completion and refunds reserved quota once. A late PUT cannot publish. Returns cancelled:true only after a confirmed refund; then a client may retry through multipart POST /images. If completion already committed, returns cancelled:false with its existing image. A live completion lease returns 409; retry cancellation or completion, never create a second upload while the outcome is unknown.",
+        "parameters": [
+          {
+            "name": "upload_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancelled or already committed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "cancelled"
+                      ],
+                      "properties": {
+                        "cancelled": {
+                          "type": "boolean"
+                        },
+                        "image": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/HostedImage"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/images/uploads": {
+      "post": {
+        "tags": [
+          "Hosted Images"
+        ],
+        "operationId": "createImageUpload",
+        "summary": "Reserve a direct image upload",
+        "description": "Requires images:write. Reserves upload/storage quota until complete_before (35 minutes). PUT must begin by expires_at (five minutes); the extra 30 minutes allow slow transfers. PUT the exact original bytes to upload_url with the returned headers, without API credentials. Content-Length and x-amz-checksum-sha256 are signed; browsers generate it from a File/Blob. If-None-Match prevents replacement. Then POST complete_url. The private URL is a temporary credential: do not log or share it. Existing POST /images is unchanged. Expired or invalid uploads refund the reservation. Format validation occurs at completion, before creating an image or job.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "mime_type",
+                  "bytes",
+                  "sha256"
+                ],
+                "properties": {
+                  "filename": {
+                    "type": "string",
+                    "maxLength": 180
+                  },
+                  "mime_type": {
+                    "enum": [
+                      "image/jpeg",
+                      "image/png",
+                      "image/gif",
+                      "image/webp",
+                      "image/avif",
+                      "image/heic",
+                      "image/heif"
+                    ]
+                  },
+                  "bytes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10485760
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "content_rating": {
+                    "enum": [
+                      "auto",
+                      "general",
+                      "nsfw"
+                    ],
+                    "default": "auto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Temporary direct upload permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "upload_id",
+                        "upload_url",
+                        "method",
+                        "headers",
+                        "expires_at",
+                        "complete_before",
+                        "cancel_url",
+                        "complete_url",
+                        "max_bytes"
+                      ],
+                      "properties": {
+                        "upload_id": {
+                          "type": "string"
+                        },
+                        "upload_url": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "method": {
+                          "const": "PUT"
+                        },
+                        "headers": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        },
+                        "complete_before": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "cancel_url": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "expires_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "complete_url": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "max_bytes": {
+                          "const": 10485760
+                        }
+                      }
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "410": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/images/uploads/{upload_id}/complete": {
+      "post": {
+        "tags": [
+          "Hosted Images"
+        ],
+        "operationId": "completeImageUpload",
+        "summary": "Confirm and process a direct image upload",
+        "description": "Requires images:write from the same account and quota class. Verifies stored size, SHA-256 and format, then uses the same private object as the processing source without copying it. The stored R2 SHA-256 validates all bytes; JPEG/GIF/HEIC/AVIF use bounded header reads while PNG/WebP keep complete structure checks. Permissions issued without an R2 checksum retain full-file hashing. R2 uploaded time and the completion deadline must both be within complete_before. Repeated completion reuses the same image without another charge. 409 image_upload_not_received or image_upload_completing may be retried; do not create another reservation. 202 returns the same image schema as POST /images and may already be ready. Use a new Idempotency-Key when retrying a previously completed 202 response to obtain current state, or GET the image status URL.",
+        "parameters": [
+          {
+            "name": "upload_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/HostedImage"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "410": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/links": {
+      "post": {
+        "tags": [
+          "Short Links"
+        ],
+        "summary": "Create a Short Link",
+        "description": "Validates the destination and creates a temporary HTTP redirect Short Link.",
+        "operationId": "createLink",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLink"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "$ref": "#/components/responses/ShortLink"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Short Links"
+        ],
+        "summary": "List Short Links",
+        "operationId": "listLinks",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 32
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ShortLinkCollection"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/links/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/LinkId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Short Links"
+        ],
+        "summary": "Get a Short Link",
+        "operationId": "getLink",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ShortLink"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Short Links"
+        ],
+        "summary": "Change a Short Link destination",
+        "description": "Revalidates the new destination before enabling the updated redirect.",
+        "operationId": "updateLink",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLink"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ShortLink"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Short Links"
+        ],
+        "summary": "Disable a Short Link",
+        "operationId": "deleteLink",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Deleted"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/links/{id}/qr": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/LinkId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Short Links"
+        ],
+        "summary": "Download a Short Link QR code",
+        "operationId": "getLinkQr",
+        "parameters": [
+          {
+            "name": "disposition",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "attachment",
+                "inline"
+              ],
+              "default": "attachment"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sanitized QR SVG",
+            "content": {
+              "image/svg+xml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/links/{id}/analytics": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/LinkId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Get aggregate click analytics",
+        "operationId": "getLinkAnalytics",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 90,
+              "default": 30
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Aggregate analytics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/links.csv": {
+      "get": {
+        "tags": [
+          "Short Links"
+        ],
+        "summary": "Export Short Links as CSV",
+        "operationId": "exportLinksCsv",
+        "responses": {
+          "200": {
+            "description": "UTF-8 CSV, capped at 10,000 records",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/utm-presets": {
+      "get": {
+        "tags": [
+          "Short Links"
+        ],
+        "summary": "List UTM presets",
+        "operationId": "listUtmPresets",
+        "responses": {
+          "200": {
+            "description": "UTM preset collection"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Short Links"
+        ],
+        "summary": "Create a UTM preset",
+        "operationId": "createUtmPreset",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "utm"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  "utm": {
+                    "$ref": "#/components/schemas/Utm"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "UTM preset created"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/utm-presets/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/GenericId"
+        }
+      ],
+      "delete": {
+        "tags": [
+          "Short Links"
+        ],
+        "summary": "Delete a UTM preset",
+        "operationId": "deleteUtmPreset",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Deleted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/snapshots": {
+      "post": {
+        "tags": [
+          "Snapshots"
+        ],
+        "summary": "Create a Snapshot",
+        "description": "Validates a public source URL and queues an immutable Snapshot capture.",
+        "operationId": "createSnapshot",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSnapshot"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/Snapshot"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/snapshots/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/SnapshotId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Snapshots"
+        ],
+        "summary": "Get Snapshot status",
+        "operationId": "getSnapshot",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Snapshot"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/images": {
+      "post": {
+        "tags": [
+          "Hosted Images"
+        ],
+        "summary": "Upload a Hosted Image",
+        "description": "Accepts an account image within plan quota and starts WebP preparation in the background, with durable queue recovery. New uploads publish as WebP after preparation, preserving source dimensions and animation frames except proportional scaling beyond WebP codec dimensions. Validated existing WebP is retained without re-encoding. Malformed WebP containers return HTTP 415 image_format_rejected, not repair or re-encoding. Unsupported APNG returns HTTP 415 image_animation_not_supported. Both are rejected before reserving upload/storage quota, creating an image, or queueing work. Identical original bytes may reuse an active processing image or a ready WebP in the same account with the same upload rating and quota class; a 202 response can therefore already contain ready status and URLs. Legacy non-WebP URLs remain readable but are not reused for new uploads. Reuse does not consume another image upload or storage allocation. Request rate limits still apply. Auto classification is the default and runs after publication. An explicit general or nsfw owner declaration skips model classification but does not exempt content from the acceptable-use policy. Poll status_url only while processing; temporary resource failures retain the private source and retry for up to 24 hours. A client polling timeout is not an upload failure; resume status polling without reuploading. Unrated must be handled conservatively.",
+        "operationId": "createImage",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/ImageContentRating"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "image/jpeg": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/png": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/webp": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/gif": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/avif": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/heic": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "image/heif": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/HostedImage"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Hosted Images"
+        ],
+        "summary": "List Hosted Images",
+        "operationId": "listImages",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/HostedImageCollection"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/images/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ImageId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Hosted Images"
+        ],
+        "summary": "Get Hosted Image metadata",
+        "operationId": "getImage",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/HostedImage"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Hosted Images"
+        ],
+        "summary": "Delete a Hosted Image",
+        "operationId": "deleteImage",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Deleted"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/images/{id}/rating": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/ImageId"
+        }
+      ],
+      "patch": {
+        "tags": [
+          "Hosted Images"
+        ],
+        "summary": "Declare an owner content rating",
+        "description": "A stricter owner declaration applies immediately. A declaration that would lower the effective rating creates an operator review request instead.",
+        "operationId": "updateImageRating",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateImageRating"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/HostedImage"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/images/url": {
+      "post": {
+        "tags": [
+          "Hosted Images"
+        ],
+        "summary": "Import an image URL",
+        "operationId": "createImageFromUrl",
+        "description": "Fetches a direct public image URL with per-redirect SSRF and threat validation, verifies the returned file bytes, then uses the same preparation and account-scoped original-byte deduplication as POST /images. A 202 response may already contain a reused image or a newly published validated WebP with status ready and its URLs; use returned URLs rather than constructing a suffix. HTML post and share pages are not image URLs. A source that rejects server-side retrieval returns image_url_fetch_failed; API clients may download locally and use multipart POST /images instead. content_rating defaults to auto; general and nsfw are audited owner declarations that skip model classification.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "url"
+                ],
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 2048
+                  },
+                  "content_rating": {
+                    "type": "string",
+                    "default": "auto",
+                    "enum": [
+                      "auto",
+                      "general",
+                      "nsfw"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "$ref": "#/components/responses/HostedImage"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/domains": {
+      "get": {
+        "tags": [
+          "Domains"
+        ],
+        "summary": "List custom domains",
+        "operationId": "listDomains",
+        "responses": {
+          "200": {
+            "description": "Custom domain collection"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Domains"
+        ],
+        "summary": "Register a pending custom domain",
+        "operationId": "createDomain",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "hostname"
+                ],
+                "properties": {
+                  "hostname": {
+                    "type": "string",
+                    "maxLength": 253
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Pending domain and DNS proof instructions"
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/domains/{id}/verify": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/GenericId"
+        }
+      ],
+      "post": {
+        "tags": [
+          "Domains"
+        ],
+        "summary": "Verify DNS proof and reconcile Cloudflare activation",
+        "operationId": "verifyDomain",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current domain state"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/domains/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/GenericId"
+        }
+      ],
+      "delete": {
+        "tags": [
+          "Domains"
+        ],
+        "summary": "Disable a custom domain",
+        "operationId": "deleteDomain",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Domain disabled"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/usage": {
+      "get": {
+        "tags": [
+          "Usage"
+        ],
+        "summary": "Get account usage",
+        "operationId": "getUsage",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Usage"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "WebYore API key"
+      }
+    },
+    "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Unique mutation key retained for 24 hours.",
+        "schema": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+        }
+      },
+      "ImageContentRating": {
+        "name": "X-WebYore-Content-Rating",
+        "in": "header",
+        "required": false,
+        "description": "Upload choice: auto classification (default), or an audited general/SFW or nsfw owner declaration that skips classification.",
+        "schema": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "general",
+            "nsfw"
+          ]
+        }
+      },
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      },
+      "LinkId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_]+$"
+        }
+      },
+      "SnapshotId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_]+$"
+        }
+      },
+      "ImageId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{7,64}$"
+        }
+      },
+      "GenericId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_]+$"
+        }
+      }
+    },
+    "headers": {
+      "RequestId": {
+        "description": "Unique identifier for support and log correlation.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "RateLimitLimit": {
+        "description": "Maximum API requests permitted in the current one-minute window. Omitted for operator-issued unmetered partner keys.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "RateLimitRemaining": {
+        "description": "Requests remaining in the current one-minute window after this request. Omitted for operator-issued unmetered partner keys.",
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "RateLimitReset": {
+        "description": "Seconds until the current one-minute window resets. Omitted for operator-issued unmetered partner keys.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60
+        }
+      },
+      "IdempotentReplayed": {
+        "description": "Present with value `true` when a stored mutation response is replayed.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "true"
+          ]
+        }
+      },
+      "ServerTiming": {
+        "description": "Fresh Short Link creation reports Google Web Risk request time as `webrisk;dur=<milliseconds>`.",
+        "schema": {
+          "type": "string",
+          "pattern": "^webrisk;dur=[0-9]+(?:\\.[0-9]+)?$"
+        }
+      }
+    },
+    "schemas": {
+      "CreateLink": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048
+          },
+          "custom_slug": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{4,32}$"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "tags": {
+            "type": "array",
+            "maxItems": 10,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "maxLength": 32
+            }
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "utm": {
+            "$ref": "#/components/schemas/Utm"
+          },
+          "utm_preset_id": {
+            "type": "string"
+          },
+          "qr": {
+            "$ref": "#/components/schemas/QrOptions"
+          },
+          "custom_domain_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateLink": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 120
+          },
+          "tags": {
+            "type": "array",
+            "maxItems": 10,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "maxLength": 32
+            }
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "utm": {
+            "$ref": "#/components/schemas/Utm"
+          },
+          "qr": {
+            "$ref": "#/components/schemas/QrOptions"
+          },
+          "custom_domain_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "Utm": {
+        "type": "object",
+        "properties": {
+          "utm_source": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "utm_medium": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "utm_campaign": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "utm_term": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "utm_content": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false
+      },
+      "QrOptions": {
+        "type": "object",
+        "properties": {
+          "foreground": {
+            "type": "string",
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "default": "#0D203D"
+          },
+          "background": {
+            "type": "string",
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "default": "#FFFFFF"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "M",
+              "Q",
+              "H"
+            ],
+            "default": "M"
+          },
+          "logo_image_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Za-z0-9_-]{7,64}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateSnapshot": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048
+          },
+          "presentation": {
+            "type": "string",
+            "default": "original",
+            "enum": [
+              "original",
+              "yahoo-knowledge-2007",
+              "twbbs-2006",
+              "wretch-2008",
+              "bbs-terminal"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateImageRating": {
+        "type": "object",
+        "required": [
+          "content_rating"
+        ],
+        "properties": {
+          "content_rating": {
+            "type": "string",
+            "enum": [
+              "general",
+              "sensitive",
+              "nsfw"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "ShortLink": {
+        "type": "object",
+        "required": [
+          "id",
+          "slug",
+          "short_url",
+          "destination_url",
+          "destination_host",
+          "publication_status",
+          "redirect_status",
+          "security_status",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,32}$"
+          },
+          "short_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "custom_short_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "base_destination_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "destination_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "destination_host": {
+            "type": "string"
+          },
+          "publication_status": {
+            "type": "string",
+            "enum": [
+              "published",
+              "disabled",
+              "deleted"
+            ]
+          },
+          "redirect_status": {
+            "type": "string",
+            "enum": [
+              "enabled",
+              "warn",
+              "blocked",
+              "disabled"
+            ]
+          },
+          "security_status": {
+            "type": "string",
+            "enum": [
+              "unchecked",
+              "allowed",
+              "unknown",
+              "suspicious",
+              "malicious",
+              "needs_review"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "utm": {
+            "$ref": "#/components/schemas/Utm"
+          },
+          "qr": {
+            "$ref": "#/components/schemas/QrOptions"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "HostedImage": {
+        "type": "object",
+        "required": [
+          "id",
+          "filename",
+          "status",
+          "moderation_state",
+          "failure_code",
+          "source_mime",
+          "source_bytes",
+          "mime_type",
+          "bytes",
+          "width",
+          "height",
+          "frame_count",
+          "status_url",
+          "url",
+          "share_url",
+          "content_rating",
+          "content_rating_source",
+          "content_rating_confidence",
+          "content_rating_model",
+          "delivery_grace_until",
+          "delivery_tombstoned_at",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{7,64}$",
+            "description": "New images use 7-character random IDs. Existing longer IDs remain valid."
+          },
+          "filename": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 180
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "processing",
+              "ready",
+              "failed",
+              "deleted"
+            ]
+          },
+          "moderation_state": {
+            "type": "string",
+            "enum": [
+              "unreviewed",
+              "reported",
+              "under_review",
+              "tombstoned"
+            ]
+          },
+          "failure_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_mime": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp",
+              "image/gif",
+              "image/avif",
+              "image/heic",
+              "image/heif"
+            ]
+          },
+          "source_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10485760
+          },
+          "mime_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "image/webp",
+              "image/gif",
+              "image/png",
+              "image/jpeg",
+              null
+            ]
+          },
+          "bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 10485760
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "frame_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "status_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri",
+            "description": "Direct image URL: WebP for new uploads; existing GIF, PNG and JPEG URLs remain readable. The only file-size admission limit is 10 MiB (10485760 bytes); no dimension, frame-count or total-pixel admission limits. URL stays null during processing. Conversion retains timeout and memory protection; resource failures retain the private source for bounded retries, never publish a non-WebP fallback. Validated WebP retains its encoded pixels with private metadata stripped. Compression size and quality vary. Classification failures never revoke a published image. Use the returned URL and mime_type, not a hardcoded extension. Ready images may initially be unrated while background classification runs. Unauthenticated GET/HEAD returns the current X-WebYore-Content-Rating (general, sensitive, nsfw, unrated) and Cache-Control: private, no-cache, must-revalidate; immutable bytes are cached internally. If-None-Match can return 304 after current availability and rating checks, without image delivery-byte charges. ETags change when effective rating changes. CDN responses remain no-store. HEAD has no body. Unavailable responses omit rating headers."
+          },
+          "share_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri",
+            "description": "Session-neutral viewer page with rating context and a report action. Use url for direct image embedding."
+          },
+          "content_rating": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "general",
+              "sensitive",
+              "nsfw",
+              "unrated",
+              null
+            ]
+          },
+          "content_rating_source": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "model",
+              "owner",
+              "operator",
+              "system",
+              null
+            ]
+          },
+          "content_rating_confidence": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "content_rating_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 120
+          },
+          "delivery_grace_until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "delivery_tombstoned_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Snapshot": {
+        "type": "object",
+        "required": [
+          "id",
+          "capture_id",
+          "slug",
+          "short_url",
+          "source_url",
+          "source_host",
+          "status",
+          "result_status",
+          "error_code",
+          "publication_status",
+          "redirect_status",
+          "security_status",
+          "requested_presentation",
+          "selected_presentation",
+          "selected_template_id",
+          "selected_template_version",
+          "created_at",
+          "updated_at",
+          "completed_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "capture_id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,32}$"
+          },
+          "short_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "source_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "source_host": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "queued",
+              "capturing",
+              "ready",
+              "failed",
+              "expired"
+            ]
+          },
+          "result_status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "complete",
+              "incomplete",
+              "unsupported",
+              "policy_blocked",
+              "failed",
+              null
+            ]
+          },
+          "error_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "publication_status": {
+            "type": "string",
+            "enum": [
+              "published",
+              "disabled",
+              "deleted"
+            ]
+          },
+          "redirect_status": {
+            "type": "string",
+            "enum": [
+              "enabled",
+              "warn",
+              "blocked",
+              "disabled"
+            ]
+          },
+          "security_status": {
+            "type": "string",
+            "enum": [
+              "unchecked",
+              "allowed",
+              "unknown",
+              "suspicious",
+              "malicious",
+              "needs_review"
+            ]
+          },
+          "requested_presentation": {
+            "type": "string",
+            "enum": [
+              "original",
+              "yahoo-knowledge-2007",
+              "twbbs-2006",
+              "wretch-2008",
+              "bbs-terminal"
+            ]
+          },
+          "selected_presentation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "original",
+              "yahoo-knowledge-2007",
+              "twbbs-2006",
+              "wretch-2008",
+              "bbs-terminal",
+              null
+            ]
+          },
+          "selected_template_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "selected_template_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "Usage": {
+        "type": "object",
+        "required": [
+          "plan",
+          "short_links",
+          "images",
+          "api_access"
+        ],
+        "properties": {
+          "plan": {
+            "type": "string",
+            "enum": [
+              "free",
+              "supporter"
+            ]
+          },
+          "short_links": {
+            "type": "object",
+            "description": "Short Link creation quota usage.",
+            "required": [
+              "day",
+              "month",
+              "api_month"
+            ],
+            "properties": {
+              "day": {
+                "$ref": "#/components/schemas/ResettingQuota"
+              },
+              "month": {
+                "$ref": "#/components/schemas/ResettingQuota"
+              },
+              "api_month": {
+                "$ref": "#/components/schemas/ResettingQuota"
+              }
+            }
+          },
+          "images": {
+            "type": "object",
+            "required": [
+              "uploads_month",
+              "storage_bytes",
+              "delivery_bytes_month"
+            ],
+            "properties": {
+              "uploads_month": {
+                "$ref": "#/components/schemas/ResettingQuota"
+              },
+              "storage_bytes": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/Quota"
+                  }
+                ],
+                "description": "For ordinary credentials, used excludes Partner storage. For unmetered credentials, used is the account total and limit is null.",
+                "properties": {
+                  "total_used": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "All reserved or ready image bytes for the account, including Partner uploads."
+                  },
+                  "unmetered_used": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Partner image bytes excluded from ordinary storage quota."
+                  }
+                }
+              },
+              "delivery_bytes_month": {
+                "type": "object",
+                "description": "Best-effort sum of normalized image payload bytes for successful direct-image GET responses in the UTC month, including edge-cache hits and unmetered images. Updated asynchronously; excludes HEAD, metadata, share-page HTML, unavailable images and response headers. Not confirmed client-received bytes or a billing quota. Collection started September 8, 2026; earlier traffic is not backfilled.",
+                "required": [
+                  "used",
+                  "resets_at"
+                ],
+                "properties": {
+                  "used": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "resets_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          },
+          "api_access": {
+            "type": "object",
+            "required": [
+              "quota_class",
+              "product_quota_metered"
+            ],
+            "properties": {
+              "quota_class": {
+                "type": "string",
+                "enum": [
+                  "metered",
+                  "unmetered"
+                ]
+              },
+              "product_quota_metered": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "Quota": {
+        "type": "object",
+        "required": [
+          "used",
+          "limit"
+        ],
+        "properties": {
+          "used": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "null for operator-issued unmetered Partner Keys."
+          }
+        }
+      },
+      "ResettingQuota": {
+        "type": "object",
+        "required": [
+          "used",
+          "limit",
+          "resets_at"
+        ],
+        "properties": {
+          "used": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "null for operator-issued unmetered Partner Keys."
+          },
+          "resets_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AnalyticsResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "link_id",
+              "range",
+              "totals",
+              "series",
+              "countries",
+              "devices",
+              "referrers"
+            ],
+            "properties": {
+              "link_id": {
+                "type": "string"
+              },
+              "range": {
+                "type": "object"
+              },
+              "totals": {
+                "type": "object",
+                "properties": {
+                  "clicks": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "unique_visitors": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "series": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "countries": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "devices": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "referrers": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "Meta": {
+        "type": "object",
+        "required": [
+          "request_id"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string"
+          }
+        }
+      },
+      "CollectionMeta": {
+        "type": "object",
+        "required": [
+          "request_id",
+          "next_cursor"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "ShortLinkResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ShortLink"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "ShortLinkCollectionResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShortLink"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/CollectionMeta"
+          }
+        }
+      },
+      "HostedImageResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/HostedImage"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "SnapshotResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Snapshot"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "HostedImageCollectionResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HostedImage"
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/CollectionMeta"
+          }
+        }
+      },
+      "UsageResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Usage"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "DeletedResponse": {
+        "type": "object",
+        "required": [
+          "data",
+          "meta"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "id",
+              "deleted"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "deleted": {
+                "type": "boolean",
+                "const": true
+              }
+            }
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "request_id"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "ShortLink": {
+        "description": "Short Link resource",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "RateLimit-Limit": {
+            "$ref": "#/components/headers/RateLimitLimit"
+          },
+          "RateLimit-Remaining": {
+            "$ref": "#/components/headers/RateLimitRemaining"
+          },
+          "RateLimit-Reset": {
+            "$ref": "#/components/headers/RateLimitReset"
+          },
+          "Idempotent-Replayed": {
+            "$ref": "#/components/headers/IdempotentReplayed"
+          },
+          "Server-Timing": {
+            "$ref": "#/components/headers/ServerTiming"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ShortLinkResponse"
+            }
+          }
+        }
+      },
+      "ShortLinkCollection": {
+        "description": "Short Link collection",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "RateLimit-Limit": {
+            "$ref": "#/components/headers/RateLimitLimit"
+          },
+          "RateLimit-Remaining": {
+            "$ref": "#/components/headers/RateLimitRemaining"
+          },
+          "RateLimit-Reset": {
+            "$ref": "#/components/headers/RateLimitReset"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ShortLinkCollectionResponse"
+            }
+          }
+        }
+      },
+      "HostedImage": {
+        "description": "Hosted Image resource",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "RateLimit-Limit": {
+            "$ref": "#/components/headers/RateLimitLimit"
+          },
+          "RateLimit-Remaining": {
+            "$ref": "#/components/headers/RateLimitRemaining"
+          },
+          "RateLimit-Reset": {
+            "$ref": "#/components/headers/RateLimitReset"
+          },
+          "Idempotent-Replayed": {
+            "$ref": "#/components/headers/IdempotentReplayed"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/HostedImageResponse"
+            }
+          }
+        }
+      },
+      "Snapshot": {
+        "description": "Snapshot resource or asynchronous capture status",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "RateLimit-Limit": {
+            "$ref": "#/components/headers/RateLimitLimit"
+          },
+          "RateLimit-Remaining": {
+            "$ref": "#/components/headers/RateLimitRemaining"
+          },
+          "RateLimit-Reset": {
+            "$ref": "#/components/headers/RateLimitReset"
+          },
+          "Idempotent-Replayed": {
+            "$ref": "#/components/headers/IdempotentReplayed"
+          },
+          "Server-Timing": {
+            "$ref": "#/components/headers/ServerTiming"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/SnapshotResponse"
+            }
+          }
+        }
+      },
+      "HostedImageCollection": {
+        "description": "Hosted Image collection",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "RateLimit-Limit": {
+            "$ref": "#/components/headers/RateLimitLimit"
+          },
+          "RateLimit-Remaining": {
+            "$ref": "#/components/headers/RateLimitRemaining"
+          },
+          "RateLimit-Reset": {
+            "$ref": "#/components/headers/RateLimitReset"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/HostedImageCollectionResponse"
+            }
+          }
+        }
+      },
+      "Usage": {
+        "description": "Account usage",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "RateLimit-Limit": {
+            "$ref": "#/components/headers/RateLimitLimit"
+          },
+          "RateLimit-Remaining": {
+            "$ref": "#/components/headers/RateLimitRemaining"
+          },
+          "RateLimit-Reset": {
+            "$ref": "#/components/headers/RateLimitReset"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/UsageResponse"
+            }
+          }
+        }
+      },
+      "Deleted": {
+        "description": "Resource disabled or deleted",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "RateLimit-Limit": {
+            "$ref": "#/components/headers/RateLimitLimit"
+          },
+          "RateLimit-Remaining": {
+            "$ref": "#/components/headers/RateLimitRemaining"
+          },
+          "RateLimit-Reset": {
+            "$ref": "#/components/headers/RateLimitReset"
+          },
+          "Idempotent-Replayed": {
+            "$ref": "#/components/headers/IdempotentReplayed"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/DeletedResponse"
+            }
+          }
+        }
+      },
+      "Error": {
+        "description": "Error response",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Missing, invalid, expired, or revoked API key",
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "WWW-Authenticate": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}
