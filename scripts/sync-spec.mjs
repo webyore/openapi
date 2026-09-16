@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import { readFile, writeFile } from 'node:fs/promises';
+const path = new URL('../openapi.json', import.meta.url);
+const response = await fetch('https://api.webyore.com/openapi.json', { signal: AbortSignal.timeout(30_000) });
+assert.equal(response.status, 200);
+const spec = await response.json();
+assert.equal(spec.openapi, '3.1.0');
+assert.equal(spec.info.title, 'WebYore API');
+assert.equal(spec.servers[0].url, 'https://api.webyore.com/v1');
+if (process.argv.includes('--check')) assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), spec, 'Run npm run spec:update and review the changes');
+else await writeFile(path, JSON.stringify(spec, null, 2) + '\n');
+console.log('OpenAPI specification matches the production API');
